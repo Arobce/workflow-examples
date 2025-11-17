@@ -14,14 +14,13 @@ export const workflowSettings = {
 	},
 };
 
+const BANNED_USERNAMES = ["admin", "root", "test"];
+
 export default async function Workflow(event: any) {
   console.log("Workflow triggered: onUsernameProvided");
   console.log("Event received:", JSON.stringify(event, null, 2));
-
-    
-
-  const banned = ["admin", "root", "test"];
-  console.log("Banned usernames:", banned);
+  
+  console.log("Banned usernames:", BANNED_USERNAMES);
 
   const username = event?.context?.auth?.suppliedUsername;
   console.log("Extracted username:", username);
@@ -39,7 +38,16 @@ export default async function Workflow(event: any) {
     return;
   }
 
-  if (banned.includes(username)) {
+  // Enforce length constraints  
+  const MIN_LENGTH = 3;  
+  const MAX_LENGTH = 20;  
+  if (username.length < MIN_LENGTH || username.length > MAX_LENGTH) {  
+    console.log("Username failed length validation.");  
+    invalidateFormField("p_username", `Username must be between ${MIN_LENGTH} and ${MAX_LENGTH} characters.`);  
+    return;  
+  }  
+
+  if (BANNED_USERNAMES.includes(username.toLocaleLowerCase())) {
     console.log("Username is banned. Invalidating form field.");
     invalidateFormField("p_username", "This username is not allowed.");
     return;
