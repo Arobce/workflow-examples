@@ -58,9 +58,9 @@ export const workflowSettings: WorkflowSettings = {
  * Looks up the organization and plan, and updates metered usage for the 'user' feature.
  */
 export default async function trackOrgSeatUsage(event: onPostAuthenticationEvent) {
-    console.log('[DEBUG] trackOrgSeatUsage triggered', { event });
     const isNewKindeUser = event.context.auth.isNewUserRecordCreated;
     const orgCode = event.request.authUrlParams.orgCode;
+    
     console.log('[DEBUG] orgCode from authUrlParams:', orgCode);
     console.log('[DEBUG] isNewKindeUser:', isNewKindeUser);
 
@@ -88,6 +88,14 @@ export default async function trackOrgSeatUsage(event: onPostAuthenticationEvent
         console.log('[DEBUG] organization:', organization);
         const planCode = "standard-organization-plan"; // Update if your plan code differs
         console.log('[DEBUG] planCode:', planCode);
+
+        // Ensure billing data exists
+        if (!organization.billing || !organization.billing.agreements || organization.billing.agreements.length === 0) {
+            console.log(
+                `[INFO] Organization ${orgCode} does not have billing configured or no agreements found. Skipping metered usage update.`
+            );
+            return;
+        }
 
         // Find the correct billing agreement for the plan
         const agreement = organization.billing.agreements.find(
