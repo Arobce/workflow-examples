@@ -58,84 +58,89 @@ export const workflowSettings: WorkflowSettings = {
  * Looks up the organization and plan, and updates metered usage for the 'user' feature.
  */
 export default async function trackOrgSeatUsage(event: onPostAuthenticationEvent) {
-    const isNewKindeUser = event.context.auth.isNewUserRecordCreated;
-    const orgCode = event.request.authUrlParams.orgCode;
-    
+    // Use optional chaining to safely access nested properties with sensible defaults
+    const isNewKindeUser = event?.context?.auth?.isNewUserRecordCreated ?? false;
+    const orgCode = event?.request?.authUrlParams?.orgCode;
+
     console.log('[DEBUG] orgCode from authUrlParams:', orgCode);
     console.log('[DEBUG] isNewKindeUser:', isNewKindeUser);
 
-    if (!orgCode) {
-        console.log('[DEBUG] No orgCode found in authUrlParams. Exiting workflow safely.');
+    // Early return if required properties are missing
+    if (!orgCode || !event?.context?.user?.id) {
+        console.log('[DEBUG] Missing required parameters (orgCode or user ID). Exiting workflow safely.');
         return;
     }
 
     // Only update usage if this is a new user record
-    if (isNewKindeUser) {
-        const kindeUserId = event.context.user.id;
-        console.log('[DEBUG] New Kinde user ID:', kindeUserId);
+    if (!isNewKindeUser) {
+        console.log('[DEBUG] User is not new. No seat usage update needed. Exiting workflow safely.');
+        return;
+    }
 
-        // Create Kinde Management API client
-        const kindeAPI = await createKindeAPI(event);
-        console.log('[DEBUG] Kinde API client created');
+    const kindeUserId = event.context.user.id;
+    console.log('[DEBUG] New Kinde user ID:', kindeUserId);
 
-        // Fetch organization details (including billing info)
-        const orgResponse = await kindeAPI.get({
-            endpoint: `organization?code=${orgCode}&expand=billing`,
-        });
-        console.log('[DEBUG] orgResponse:', orgResponse);
+    // Create Kinde Management API client
+    const kindeAPI = await createKindeAPI(event);
+    console.log('[DEBUG] Kinde API client created');
 
-        const organization = orgResponse.data;
-        console.log('[DEBUG] organization:', organization);
-        const planCode = "standard-organization-plan"; // Update if your plan code differs
-        console.log('[DEBUG] planCode:', planCode);
+    // Fetch organization details (including billing info)
+    const orgResponse = await kindeAPI.get({
+        endpoint: `organization?code=${orgCode}&expand=billing`,
+    });
+    console.log('[DEBUG] orgResponse:', orgResponse);
 
-        // Ensure billing data exists
-        if (!organization.billing || !organization.billing.agreements || organization.billing.agreements.length === 0) {
-            console.log(
-                `[INFO] Organization ${orgCode} does not have billing configured or no agreements found. Skipping metered usage update.`
-            );
-            return;
-        }
+    const organization = orgResponse.data;
+    console.log('[DEBUG] organization:', organization);
+    const planCode = "standard-organization-plan"; // Update if your plan code differs
+    console.log('[DEBUG] planCode:', planCode);
 
-        // Find the correct billing agreement for the plan
-        const agreement = organization.billing.agreements.find(
-            (agr: any) => agr.plan_code === planCode
+    // Ensure billing data exists
+    if (!organization.billing || !organization.billing.agreements || organization.billing.agreements.length === 0) {
+        console.log(
+            `[INFO] Organization ${orgCode} does not have billing configured or no agreements found. Skipping metered usage update.`
         );
-        console.log('[DEBUG] agreement:', agreement);
+        return;
+    }
 
-        if (!agreement) {
-            console.log(
-                `[INFO] Organization ${orgCode} is not on plan ${planCode}. Skipping metered usage update.`
-            );
-            return;
-        }
+    // Find the correct billing agreement for the plan
+    const agreement = organization.billing.agreements.find(
+        (agr: any) => agr.plan_code === planCode
+    );
+    console.log('[DEBUG] agreement:', agreement);
 
-        const billingCustomerAgreementId = agreement.agreement_id;
-        console.log('[DEBUG] billingCustomerAgreementId:', billingCustomerAgreementId);
+    if (!agreement) {
+        console.log(
+            `[INFO] Organization ${orgCode} is not on plan ${planCode}. Skipping metered usage update.`
+        );
+        return;
+    }
 
-        const billingFeatureCode = "user"; // Must match your metered feature key
-        console.log('[DEBUG] billingFeatureCode:', billingFeatureCode);
+    const billingCustomerAgreementId = agreement.agreement_id;
+    console.log('[DEBUG] billingCustomerAgreementId:', billingCustomerAgreementId);
 
-        // Update metered usage for the organization (increment seat count)
-        console.log('[DEBUG] Posting metered usage update', {
+    const billingFeatureCode = "user"; // Must match your metered feature key
+    console.log('[DEBUG] billingFeatureCode:', billingFeatureCode);
+
+    // Update metered usage for the organization (increment seat count)
+    console.log('[DEBUG] Posting metered usage update', {
+        customer_agreement_id: billingCustomerAgreementId,
+        billing_feature_code: billingFeatureCode,
+        meter_value: "1",
+        meter_type_code: "delta",
+    });
+    const meterUsageResponse = await kindeAPI.post({
+        endpoint: `billing/meter_usage`,
+        params: {
             customer_agreement_id: billingCustomerAgreementId,
             billing_feature_code: billingFeatureCode,
             meter_value: "1",
             meter_type_code: "delta",
-        });
-        const meterUsageResponse = await kindeAPI.post({
-            endpoint: `billing/meter_usage`,
-            params: {
-                customer_agreement_id: billingCustomerAgreementId,
-                billing_feature_code: billingFeatureCode,
-                meter_value: "1",
-                meter_type_code: "delta",
-            },
-        });
-        console.log('[DEBUG] meterUsageResponse:', meterUsageResponse);
+        },
+    });
+    console.log('[DEBUG] meterUsageResponse:', meterUsageResponse);
 
-        console.log(
-            `[INFO] Metered usage updated for organization ${orgCode} and user ${kindeUserId}`
-        );
-    }
+    console.log(
+        `[INFO] Metered usage updated for organization ${orgCode} and user ${kindeUserId}`
+    );
 }
